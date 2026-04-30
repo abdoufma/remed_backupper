@@ -1,18 +1,22 @@
 //@ts-check
 import { join, basename, posix } from "node:path";
-import { logDebug, logError } from "./utils.js";
+import { logDebug, logError, logInfo, logSuccess } from "./utils.js";
 
 import { createReadStream, createWriteStream, unlinkSync } from 'fs';
 import { createGzip, } from 'node:zlib';
 import SftpClient from 'ssh2-sftp-client';
 import { existsSync } from "node:fs";
 
+/** @type import("node:zlib").ZlibOptions} gzipOptions */
+const gzipOptions = {level : 1}; 
+
 /** 
  * @param {string} dbPath 
  * @param {string} backupDir 
- * @param {import("node:zlib").ZlibOptions?} gzipOptions
+ * @param {Boolean} compressAfterBackup
  */
-export async function backupWithDriver(dbPath, backupDir, gzipOptions) {
+export async function backupWithDriver(dbPath, backupDir, compressAfterBackup) {
+    logDebug('Starting database backup');
     const formatTime = (ms) => (ms / 1000).toFixed() + "s";
     const { default: Database } = await import('better-sqlite3');
     const start = performance.now();
@@ -21,13 +25,13 @@ export async function backupWithDriver(dbPath, backupDir, gzipOptions) {
     await source.backup(backupFilePath);
     source.close();
     const backupEnd = performance.now();
-    logDebug(`Database backup completed in ${formatTime(backupEnd - start)}`);
+    logSuccess(`Database backup completed in ${formatTime(backupEnd - start)}`);
     
-    if (gzipOptions) {
+    if (compressAfterBackup) {
         const gzipPath = `${backupFilePath}.gz`;
         await gzipFile(backupFilePath, gzipPath, gzipOptions);
         const compressionEnd = performance.now();
-        logDebug(`Backup compression completed in ${formatTime(compressionEnd - backupEnd)}`);
+        logSuccess(`Backup compression completed in ${formatTime(compressionEnd - backupEnd)}`);
         return gzipPath;
     }
 
@@ -69,11 +73,9 @@ async function uploadFileToFTPServer(sourceFile) {
   
     try {
       await sftp.connect(config);
-      console.log('Connected to SFTP server successfully!\n');
-      
+      logDebug('Connected to SFTP server!');
       // Upload with progress tracking
       const remoteDir = process.env.REMOTE_BACKUP_DIR ?? '/home/remedchu/ftp/data/';
-      console.log('Connected.');
   
       const localFile = sourceFile;
       const remoteFile= posix.join(remoteDir, basename(sourceFile)) ;
@@ -96,13 +98,12 @@ async function uploadFileToFTPServer(sourceFile) {
           process.stdout.write(`\r[${bar}] ${percent}% (${mbTransferred}MB / ${mbTotal}MB)`);
         }
       });
-      
-      console.log('\n\nUpload completed successfully!');
+      console.log("")
+      logSuccess('Upload completed successfully!');
     } catch (err) {
      throw new Error(`[SFTP ERROR] ${err.message}`, {cause : err.cause})
     } finally {
       await sftp.end();
-      console.log('Connection closed');
     }
   }
 
@@ -111,11 +112,12 @@ async function uploadFileToFTPServer(sourceFile) {
 (async function main() {
     try {
         const dbPath = process.env.REMED_DB_PATH;
-        if (!dbPath || !existsSync(dbPath)) { logError(`Database Path '${dbPath}' does not exist. Exitting.`); process.exit(1); }
+        if (!dbPath || !existsSync(dbPath)) throw new Error(`Database Path '${dbPath}' does not exist. Exitting...`);
         const backupDir = process.env.REMED_BACKUPS_DIR;
-        if (!backupDir || !existsSync(backupDir)) { logError(`Backup Dir '${backupDir}' does not exist. Exitting.`); process.exit(1); }
-        const dbBackupFile = await backupWithDriver(dbPath, backupDir, {level : 1});
-        await uploadFileToFTPServer(dbBackupFile)
+        if (!backupDir || !existsSync(backupDir)) throw new Error(`Backup Dir '${backupDir}' does not exist. Exitting...`);
+
+        const dbBackupFile = await backupWithDriver(dbPath, backupDir, process.env.COMPRESS_AFTER_BACKUP === "1");
+        if (process.env.UPLOAD_AFTER_BACKUP === "1") await uploadFileToFTPServer(dbBackupFile);
     } catch (err) {
         logError(err?.message ?? JSON.stringify(err));
         process.exit(1);

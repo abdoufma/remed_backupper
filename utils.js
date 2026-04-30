@@ -1,3 +1,4 @@
+//@ts-check
 import chalk from "chalk";
 
 const DEBUG_ENABLED =
@@ -5,14 +6,28 @@ const DEBUG_ENABLED =
     process.env.DEBUG === "true" ||
     process.env.NODE_ENV !== "production";
 
-/**
- * @param {string} message
- */
-export function logDebug(message) {
+/** @param {Array<string>} message */
+export function logDebug(...message) {
     if (!DEBUG_ENABLED) return;
 
     const time = new Date().toISOString();
-    console.debug(chalk.gray(`[debug ${time}]`), chalk.cyan(message));
+    console.debug(chalk.gray(`[DEBUG ${time}]`), chalk.cyan(...message));
+}
+
+/** @param {Array<string>} message */
+export function logSuccess(...message) {
+    if (!DEBUG_ENABLED) return;
+
+    const time = new Date().toISOString();
+    console.debug(chalk.gray(`[DEBUG ${time}]`), chalk.green(...message));
+}
+
+/** @param {Array<string>} message */
+export function logInfo(...message) {
+    if (!DEBUG_ENABLED) return;
+
+    const time = new Date().toISOString();
+    console.debug(chalk.gray(`[DEBUG ${time}]`), chalk.white(...message));
 }
 
 /**
