@@ -4,3 +4,4 @@ backups/
 *.sqlite
 
 .env
+ecosystem.config.cjs
