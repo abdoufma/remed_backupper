@@ -8,11 +8,11 @@ import SftpClient from 'ssh2-sftp-client';
 import { existsSync } from "node:fs";
 
 /** @type import("node:zlib").ZlibOptions} gzipOptions */
-const gzipOptions = {level : 1}; 
+const gzipOptions = {level : 1};
 
-/** 
- * @param {string} dbPath 
- * @param {string} backupDir 
+/**
+ * @param {string} dbPath
+ * @param {string} backupDir
  * @param {Boolean} compressAfterBackup
  */
 export async function backupWithDriver(dbPath, backupDir, compressAfterBackup) {
@@ -26,7 +26,7 @@ export async function backupWithDriver(dbPath, backupDir, compressAfterBackup) {
     source.close();
     const backupEnd = performance.now();
     logSuccess(`Database backup completed in ${formatTime(backupEnd - start)}`);
-    
+
     if (compressAfterBackup) {
         const gzipPath = `${backupFilePath}.gz`;
         await gzipFile(backupFilePath, gzipPath, gzipOptions);
@@ -36,11 +36,11 @@ export async function backupWithDriver(dbPath, backupDir, compressAfterBackup) {
     }
 
     return backupFilePath;
-}                       
+}
 
 /**
- * @param {string} tmpPath 
- * @param {string} gzipPath 
+ * @param {string} tmpPath
+ * @param {string} gzipPath
  * @param {import("node:zlib").ZlibOptions | undefined} gzipOptions
  */
 
@@ -63,38 +63,38 @@ function gzipFile(tmpPath, gzipPath, gzipOptions){
 /** @param {string} sourceFile  */
 async function uploadFileToFTPServer(sourceFile) {
     const sftp = new SftpClient();
-    
+
     const config = {
       host: process.env.FTP_HOST,
       port: Number(process.env.FTP_PORT ?? 21),
       username: process.env.FTP_USER,
       password: process.env.FTP_PASSWORD,
     };
-  
+
     try {
       await sftp.connect(config);
       logDebug('Connected to SFTP server!');
       // Upload with progress tracking
       const remoteDir = process.env.REMOTE_BACKUP_DIR ?? '/home/remedchu/ftp/data/';
-  
+
       const localFile = sourceFile;
       const remoteFile= posix.join(remoteDir, basename(sourceFile)) ;
-      
-  
+
+
       let uploaded = 0;
-      
+
       await sftp.fastPut(localFile, remoteFile, {
         step: (totalTransferred, chunk, total) => {
           uploaded = totalTransferred;
           const percent = ((uploaded / total) * 100).toFixed(2);
           const mbTransferred = (uploaded / (1024 * 1024)).toFixed(2);
           const mbTotal = (total / (1024 * 1024)).toFixed(2);
-          
+
           // Create progress bar
           const barLength = 40;
           const filled = Math.round((uploaded / total) * barLength);
           const bar = '█'.repeat(filled) + '░'.repeat(barLength - filled);
-          
+
           process.stdout.write(`\r[${bar}] ${percent}% (${mbTransferred}MB / ${mbTotal}MB)`);
         }
       });
@@ -108,18 +108,24 @@ async function uploadFileToFTPServer(sourceFile) {
   }
 
 
+export async function runBackup() {
+  const dbPath = process.env.REMED_DB_PATH;
+  if (!dbPath || !existsSync(dbPath)) throw new Error(`Database Path '${dbPath}' does not exist. Exitting...`);
+  const backupDir = process.env.REMED_BACKUPS_DIR;
+  if (!backupDir || !existsSync(backupDir)) throw new Error(`Backup Dir '${backupDir}' does not exist. Exitting...`);
 
-(async function main() {
+  const dbBackupFile = await backupWithDriver(dbPath, backupDir, process.env.COMPRESS_AFTER_BACKUP === "1");
+  if (process.env.UPLOAD_AFTER_BACKUP === "1") await uploadFileToFTPServer(dbBackupFile);
+}
+
+
+async function main() {
     try {
-        const dbPath = process.env.REMED_DB_PATH;
-        if (!dbPath || !existsSync(dbPath)) throw new Error(`Database Path '${dbPath}' does not exist. Exitting...`);
-        const backupDir = process.env.REMED_BACKUPS_DIR;
-        if (!backupDir || !existsSync(backupDir)) throw new Error(`Backup Dir '${backupDir}' does not exist. Exitting...`);
-
-        const dbBackupFile = await backupWithDriver(dbPath, backupDir, process.env.COMPRESS_AFTER_BACKUP === "1");
-        if (process.env.UPLOAD_AFTER_BACKUP === "1") await uploadFileToFTPServer(dbBackupFile);
+      await runBackup();
     } catch (err) {
         logError(err?.message ?? JSON.stringify(err));
         process.exit(1);
     }
-})()
+}
+
+if (import.meta.main) main()

@@ -1,6 +1,6 @@
 //@ts-check
-import { spawn } from "node:child_process";
 import { logError, logInfo } from "./utils.js";
+import { runBackup } from "./index.js"
 
 const intervalSeconds = Number(process.env.BACKUP_INTERVAL);
 
@@ -10,61 +10,56 @@ if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) {
 }
 
 const intervalMs = intervalSeconds * 1000;
-let stopping = false;
-let activeChild = null;
 
-function wait(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
+let timer = null;
+let isRunning = false;
+let shuttingDown = false;
 
-function runBackupOnce() {
-    return new Promise((resolve) => {
-        const child = spawn(process.execPath, ["index.js"], {
-            env: process.env,
-            stdio: "inherit",
-        });
+async function tick() {
+    if (isRunning) {
+        logInfo("Previous backup still in progress, skipping this tick.");
+        return;
+    }
 
-        activeChild = child;
+    if (shuttingDown) return;
 
-        child.on("error", (err) => {
-            logError(err);
-            resolve(1);
-        });
-
-        child.on("close", (code, signal) => {
-            activeChild = null;
-
-            if (signal) {
-                logError(`Backup process exited from signal ${signal}.`);
-                resolve(1);
-                return;
-            }
-
-            resolve(code ?? 1);
-        });
-    });
-}
-
-function stop(signal) {
-    stopping = true;
-
-    if (activeChild) {
-        activeChild.kill(signal);
+    isRunning = true;
+    try {
+        await runBackup();
+    } catch (err) {
+        logError(err?.message ?? JSON.stringify(err));
+    } finally {
+        isRunning = false;
+        if (shuttingDown) {
+            process.exit(0);
+        }
     }
 }
 
-process.on("SIGINT", stop);
-process.on("SIGTERM", stop);
-
-while (!stopping) {
-    const exitCode = await runBackupOnce();
-
-    if (exitCode !== 0) {
-        logError(`Backup run failed with exit code ${exitCode}.`);
-    }
-
-    if (!stopping) {
-        logInfo(`Waiting ${intervalSeconds}s before next backup run.`);
-        await wait(intervalMs);
-    }
+function start() {
+    logInfo(`Starting periodic backups every ${intervalSeconds}s.`);
+    tick(); // run immediately on start
+    timer = setInterval(tick, intervalMs);
 }
+
+function shutdown() {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
+    logInfo("Shutdown signal received. Stopping scheduler...");
+
+    if (timer) {
+        clearInterval(timer);
+        timer = null;
+    }
+
+    if (!isRunning) {
+        process.exit(0);
+    }
+    // If a backup is in progress, tick() will call process.exit(0) in its finally block.
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+start();
