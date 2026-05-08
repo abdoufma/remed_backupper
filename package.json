@@ -11,6 +11,7 @@
     "@types/node": "^22.19.17"
   },
   "scripts": {
-    "start": "node -r dotenv/config index.js"
+    "start": "node -r dotenv/config index.js",
+    "periodic": "node -r dotenv/config periodic.js"
   }
 }
