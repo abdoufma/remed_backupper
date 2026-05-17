@@ -1,6 +1,6 @@
 //@ts-check
 import { join, basename, posix } from "node:path";
-import { logDebug, logError, logInfo, logSuccess } from "./utils.js";
+import { logDebug, logError, formatTime, logSuccess } from "./utils.js";
 
 import { createReadStream, createWriteStream, unlinkSync } from 'fs';
 import { createGzip, } from 'node:zlib';
@@ -17,7 +17,6 @@ const gzipOptions = {level : 1};
  */
 export async function backupWithDriver(dbPath, backupDir, compressAfterBackup) {
     logDebug('Starting database backup');
-    const formatTime = (ms) => (ms / 1000).toFixed() + "s";
     const { default: Database } = await import('better-sqlite3');
     const start = performance.now();
     const source = new Database(dbPath, { readonly: true });
@@ -101,7 +100,8 @@ async function uploadFileToFTPServer(sourceFile) {
       console.log("")
       logSuccess('Upload completed successfully!');
     } catch (err) {
-     throw new Error(`[SFTP ERROR] ${err.message}`, {cause : err.cause})
+      if(err instanceof Error) throw new Error(`[SFTP ERROR] ${err.message}`, {cause : err.cause});
+      logError(err);
     } finally {
       await sftp.end();
     }

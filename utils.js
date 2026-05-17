@@ -42,5 +42,8 @@ export function logError(error) {
               ? error
               : JSON.stringify(error);
 
-    console.error(chalk.gray(`[error ${time}]`), chalk.red(normalizedError));
+    console.error(chalk.gray(`[ERROR ${time}]`), chalk.red(normalizedError));
 }
+
+/** @param {number} ms  */
+export const formatTime = (ms) => (ms / 1000).toFixed() + "s";
